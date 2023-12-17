@@ -38,12 +38,9 @@ public class FourierTask extends Task<ObservableList<FourierTask.Slice>>
             for (int k = 0; k < n; k++)
             {
                 freq[k] = k / duration;
-                amps[k] = coeff[k].abs();
-                if (k > 0)
-                {
-                    min = Math.min(amps[k], min);
-                    max = Math.max(amps[k], max);
-                }
+                amps[k] = 10.0 * Math.log(coeff[k].abs() / n);
+                min = Math.min(amps[k], min);
+                max = Math.max(amps[k], max);
             }
 
             // Normalise to [0, 1]
