@@ -55,6 +55,7 @@ public class Controller implements ListChangeListener<double[]>
         pane.getChildren().add(this.canvas);
         
         // Re-start manager on canvas resize
+        manager.getSlices().addListener(this);
         Controller controller = this;
         canvas.widthProperty().addListener(new ChangeListener<Number>() {
             final Timer timer = new Timer();
@@ -163,7 +164,6 @@ public class Controller implements ListChangeListener<double[]>
                 
                 // Start background threads
                 manager.start(file, fileFormat, (int)canvas.getWidth());
-                manager.getSlices().addListener(this);
                 
                 // Update label
                 AudioFormat format = fileFormat.getFormat();
