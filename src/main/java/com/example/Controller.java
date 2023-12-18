@@ -57,7 +57,7 @@ public class Controller implements ListChangeListener<double[]>
         // Re-start manager on canvas resize
         manager.getSlices().addListener(this);
         Controller controller = this;
-        canvas.widthProperty().addListener(new ChangeListener<Number>() {
+        ChangeListener<Number> listener = new ChangeListener<Number>() {
             final Timer timer = new Timer();
             TimerTask task = null;
 
@@ -85,7 +85,9 @@ public class Controller implements ListChangeListener<double[]>
                 };
                 timer.schedule(task, 200);
             }
-        });
+        };
+        canvas.widthProperty().addListener(listener);
+        canvas.heightProperty().addListener(listener);
     }
 
     @FXML
@@ -238,7 +240,7 @@ public class Controller implements ListChangeListener<double[]>
         {
             double[] slice = list.get(i);
             int n = slice.length / 2;
-            double h = n / height;
+            double h = height / n;
             for (int j = 0; j < n; j++)
             {
                 gc.setFill(getFill(slice[j]));
