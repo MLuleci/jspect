@@ -47,6 +47,11 @@ public class Complex
         );
     }
 
+    public Complex divideBy(double d)
+    {
+        return new Complex(this.a / d, this.b / d);
+    }
+
     public double abs()
     { 
         return Math.hypot(this.a, this.b);

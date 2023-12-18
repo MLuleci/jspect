@@ -2,13 +2,18 @@ package com.example;
 
 import java.io.File;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
+import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 
-import com.example.FourierTask.Slice;
 
 import javafx.event.EventHandler;
+import javafx.application.Platform;
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.concurrent.WorkerStateEvent;
@@ -27,7 +32,7 @@ import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
-public class Controller implements ListChangeListener<Slice>
+public class Controller implements ListChangeListener<double[]>
 {
     @FXML
     private Button button;
@@ -39,6 +44,8 @@ public class Controller implements ListChangeListener<Slice>
     private Pane pane;
 
     private Canvas canvas = new Canvas();
+    private Manager manager = new Manager();
+    private File file;
 
     @FXML
     protected void initialize() 
@@ -46,6 +53,38 @@ public class Controller implements ListChangeListener<Slice>
         this.canvas.widthProperty().bind(pane.widthProperty());
         this.canvas.heightProperty().bind(pane.heightProperty());
         pane.getChildren().add(this.canvas);
+        
+        // Re-start manager on canvas resize
+        Controller controller = this;
+        canvas.widthProperty().addListener(new ChangeListener<Number>() {
+            final Timer timer = new Timer();
+            TimerTask task = null;
+
+            @Override
+            public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue)
+            {
+                // Cancel old task
+                if (task != null)
+                {
+                    task.cancel();
+                }
+
+                // Schedule new task
+                task = new TimerTask()
+                {
+                    @Override
+                    public void run() {
+                        Platform.runLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                loadFile(controller.file);
+                            }
+                        });
+                    }
+                };
+                timer.schedule(task, 200);
+            }
+        });
     }
 
     @FXML
@@ -112,66 +151,44 @@ public class Controller implements ListChangeListener<Slice>
     }
 
     private boolean loadFile(File file)
-    {   
+    {
+        this.file = file;
+        manager.stop();
         if (file != null)
         {
             try
             {
                 // Check file format
-                AudioFormat format = AudioSystem.getAudioFileFormat(file).getFormat();
-
-                // Setup UI hooks
-                FourierTask task = new FourierTask(file);
-                ObservableList<Slice> list = task.getPartialResults();
-                ListChangeListener<Slice> listener = this;
-                list.addListener(listener);
-                task.setOnCancelled(new EventHandler<WorkerStateEvent>() {
-                    @Override
-                    public void handle(WorkerStateEvent t) {
-                        setError("Task cancelled");
-                        list.removeListener(listener);
-                    }
-                });
-                task.setOnFailed(new EventHandler<WorkerStateEvent>() {
-                    @Override
-                    public void handle(WorkerStateEvent t) {
-                        setError("Task failed");
-                        list.removeListener(listener);
-                    }
-                });
-                task.setOnSucceeded(new EventHandler<WorkerStateEvent>() {
-                    @Override
-                    public void handle(WorkerStateEvent t) {
-                        // Update label
-                        StringBuilder sb = new StringBuilder();
-                        sb.append(file.getName() + ": ");
-                        sb.append(format.getEncoding());
-                        sb.append(" ");
-                        sb.append(format.getSampleRate());
-                        sb.append(" Hz, ");
-                        sb.append(format.getSampleSizeInBits());
-                        sb.append(" bit, ");
-                        switch (format.getChannels())
-                        {
-                            case 1:
-                                sb.append("mono");
-                                break;
-                            case 2:
-                                sb.append("stereo");
-                                break;
-                            default:
-                                sb.append(format.getChannels());
-                                sb.append(" channels");
-                                break;
-                        }
-                        setInfo(sb.toString());
-                        list.removeListener(listener);
-                    }
-                });
-
-                // Start background thread
-                new Thread(task).start();
-                setInfo("Loading...");
+                AudioFileFormat fileFormat = AudioSystem.getAudioFileFormat(file);
+                
+                // Start background threads
+                manager.start(file, fileFormat, (int)canvas.getWidth());
+                manager.getSlices().addListener(this);
+                
+                // Update label
+                AudioFormat format = fileFormat.getFormat();
+                StringBuilder sb = new StringBuilder();
+                sb.append(file.getName() + ": ");
+                sb.append(format.getEncoding());
+                sb.append(" ");
+                sb.append(format.getSampleRate());
+                sb.append(" Hz, ");
+                sb.append(format.getSampleSizeInBits());
+                sb.append(" bit, ");
+                switch (format.getChannels())
+                {
+                    case 1:
+                        sb.append("mono");
+                        break;
+                    case 2:
+                        sb.append("stereo");
+                        break;
+                    default:
+                        sb.append(format.getChannels());
+                        sb.append(" channels");
+                        break;
+                }
+                setInfo(sb.toString());
 
                 return true;
             }
@@ -200,32 +217,32 @@ public class Controller implements ListChangeListener<Slice>
     }
 
     @Override
-    public void onChanged(Change<? extends Slice> c)
+    public void onChanged(Change<? extends double[]> change)
     {
         final double width = canvas.getWidth();
         final double height = canvas.getHeight();
 
         GraphicsContext gc = this.canvas.getGraphicsContext2D();
-        gc.clearRect(0, 0, width, height);
-        gc.setStroke(Color.BLACK);
-        gc.setLineWidth(0);
+        change.next();
 
-        List<? extends Slice> slices = c.getList();
-        for (int i = 0; i < slices.size(); i++)
+        // List was cleared
+        if (change.wasRemoved())
         {
-            Slice s = slices.get(i);
-            final int n = s.amps.length;
+            gc.clearRect(0, 0, width, height);
+            return;
+        }
+
+        // Slices were added
+        ObservableList<? extends double[]> list = change.getList();
+        for (int i = change.getFrom(); i < change.getTo(); i++)
+        {
+            double[] slice = list.get(i);
+            int n = slice.length / 2;
+            double h = n / height;
             for (int j = 0; j < n; j++)
             {
-                double amp = s.amps[j];
-
-                double w = (width / s.total);
-                double h = height / n;
-                double x = w * i;
-                double y = height - h * j;
-
-                gc.setFill(getFill(amp));
-                gc.fillRect(x, y, w, h);
+                gc.setFill(getFill(slice[j]));
+                gc.fillRect(i, height - j * h, 1, h);
             }
         }
     }
